@@ -3,75 +3,102 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Knowunity PDF Downloader</title>
+    <title>Knowunity Downloader</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: #1e293b; padding: 2rem; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 100%; max-width: 400px; box-sizing: border-box; }
-        h2 { margin-top: 0; font-size: 1.5rem; text-align: center; color: #38bdf8; }
-        input { width: 100%; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #475569; background: #0f172a; color: #fff; margin-bottom: 1rem; box-sizing: border-box; }
-        button { width: 100%; padding: 0.75rem; border-radius: 0.5rem; border: none; background: #0ea5e9; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s; }
-        button:hover { background: #0284c7; }
-        #status { margin-top: 1rem; text-align: center; font-size: 0.9rem; color: #94a3b8; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
+        .card { background: #1e293b; padding: 2rem; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 100%; max-width: 420px; box-sizing: border-box; text-align: center; }
+        h2 { margin-top: 0; font-size: 1.5rem; color: #38bdf8; }
+        input { width: 100%; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #475569; background: #0f172a; color: #fff; margin-bottom: 1rem; box-sizing: border-box; font-size: 1rem; }
+        button, .dl-btn { width: 100%; padding: 0.75rem; border-radius: 0.5rem; border: none; background: #0ea5e9; color: white; font-weight: bold; cursor: pointer; text-decoration: none; display: inline-block; box-sizing: border-box; font-size: 1rem; }
+        button:hover, .dl-btn:hover { background: #0284c7; }
+        #status { margin-top: 1rem; font-size: 0.9rem; color: #94a3b8; word-break: break-word; }
     </style>
 </head>
 <body>
     <div class="card">
         <h2>Knowunity Downloader</h2>
-        <input type="text" id="urlInput" placeholder="Vlož odkaz (např. https://knowunity.cz/knows/...)">
-        <button onclick="downloadPdf()">Stáhnout PDF</button>
+        <input type="text" id="urlInput" placeholder="Vlož celý odkaz z Knowunity">
+        <button id="submitBtn" onclick="processKnowunity()">Získat PDF</button>
         <div id="status"></div>
     </div>
 
     <script>
-        async function downloadPdf() {
+        async function fetchWithFallback(targetUrl) {
+            const proxies = [
+                (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+                (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+                (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
+            ];
+
+            for (const proxy of proxies) {
+                try {
+                    const res = await fetch(proxy(targetUrl));
+                    if (res.ok) {
+                        return await res.text();
+                    }
+                } catch (e) {
+                    continue;
+                }
+            }
+            throw new Error("Žádná proxy neodpověděla.");
+        }
+
+        async function processKnowunity() {
             const urlInput = document.getElementById('urlInput').value.trim();
             const status = document.getElementById('status');
-            
-            const match = urlInput.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
-            if (!match) {
-                status.innerHTML = "❌ Neplatný odkaz na Knowunity!";
+            const submitBtn = document.getElementById('submitBtn');
+
+            if (!urlInput) {
+                status.innerHTML = "❌ Vlož prosím odkaz.";
                 return;
             }
 
-            const knowId = match[1];
-            status.innerHTML = "⏳ Načítám data...";
-
-            // Použijeme veřejnou CORS proxy, aby mobilní prohlížeč neblokoval požadavek
-            const apiUrl = `https://knowunity.com/api/knows-v2/${knowId}`;
-            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(apiUrl)}`;
+            status.innerHTML = "⏳ Načítám stránku...";
+            submitBtn.disabled = true;
 
             try {
-                const response = await fetch(proxyUrl);
-                const json = await response.json();
-                const data = JSON.parse(json.contents);
+                // Stáhneme přímo HTML stránky přes proxy
+                const html = await fetchWithFallback(urlInput);
 
-                const title = (data.title || "dokument").replace(/[\\/*?:"<>|]/g, "").trim();
-                const documents = data.documents || [];
+                let pdfUrl = null;
+                let title = "dokument";
 
-                if (!documents.length || !documents[0].contentUrl) {
-                    status.innerHTML = "❌ Dokument neobsahuje PDF.";
+                // Pokus 1: Vytáhnout JSON z __NEXT_DATA__
+                const jsonMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/);
+                if (jsonMatch) {
+                    try {
+                        const nextData = JSON.parse(jsonMatch[1]);
+                        const know = nextData.props?.pageProps?.know || nextData.props?.pageProps?.initialKnow;
+                        if (know) {
+                            title = know.title || title;
+                            pdfUrl = know.documents?.[0]?.contentUrl;
+                        }
+                    } catch (e) {}
+                }
+
+                // Pokus 2: Hledání PDF přímo v HTML přes regex
+                if (!pdfUrl) {
+                    const directMatch = html.match(/https:\/\/[^"'\s]+\.pdf[^"'\s]*/);
+                    if (directMatch) {
+                        pdfUrl = directMatch[0];
+                    }
+                }
+
+                if (!pdfUrl) {
+                    status.innerHTML = "❌ Nepodařilo se najít PDF odkaz. Ujisti se, že je odkaz celý a veřejný.";
+                    submitBtn.disabled = false;
                     return;
                 }
 
-                const pdfUrl = documents[0].contentUrl;
-                status.innerHTML = "📥 Stahuji soubor...";
-
-                // Stažení přes blob pro mobilní prohlížeče
-                const pdfResponse = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(pdfUrl)}`);
-                const blob = await pdfResponse.blob();
-                
-                const blobUrl = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = blobUrl;
-                a.download = `${title}.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-
-                status.innerHTML = "✅ Hotovo! PDF je stažené 🔥";
+                status.innerHTML = `
+                    <p style="color: #4ade80; font-weight: bold; margin-bottom: 0.5rem;">✅ Dokument nalezen!</p>
+                    <p style="color: #cbd5e1; margin-bottom: 1rem;">${title}</p>
+                    <a href="${pdfUrl}" target="_blank" download="${title}.pdf" class="dl-btn">Otevřít / Stáhnout PDF</a>
+                `;
             } catch (err) {
-                status.innerHTML = "❌ Chyba při stahování. Zkus to znovu.";
-                console.error(err);
+                status.innerHTML = "❌ Chyba při načítání. Zkontroluj odkaz nebo připojení.";
+            } finally {
+                submitBtn.disabled = false;
             }
         }
     </script>
