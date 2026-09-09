@@ -86,56 +86,51 @@
     </div>
 
     <script>
-        const WORKER_BASE_URL = "https://knowunity-proxy.hebronmilan89.workers.dev";
+    const WORKER_BASE_URL = "https://knowunity-proxy.hebronmilan89.workers.dev";
 
-        async function processKnowunity() {
-            const urlInput = document.getElementById('urlInput').value.trim();
-            const status = document.getElementById('status');
-            const submitBtn = document.getElementById('submitBtn');
+    async function processKnowunity() {
+        const urlInput = document.getElementById('urlInput').value.trim();
+        const status = document.getElementById('status');
+        const submitBtn = document.getElementById('submitBtn');
 
-            const uuidMatch = urlInput.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
-            
-            if (!uuidMatch) {
-                status.innerHTML = "❌ V odkazu nebylo nalezeno platné ID (UUID).";
+        if (!urlInput) {
+            status.innerHTML = "❌ Vlož prosím odkaz.";
+            return;
+        }
+
+        status.innerHTML = "⏳ Zpracovávám...";
+        submitBtn.disabled = true;
+
+        try {
+            const res = await fetch(`${WORKER_BASE_URL}?url=${encodeURIComponent(urlInput)}`);
+            const data = await res.json();
+
+            if (!res.ok) {
+                status.innerHTML = `❌ Chyba (${res.status}): ${data.error || 'Neznámá chyba'}`;
+                submitBtn.disabled = false;
                 return;
             }
 
-            const knowId = uuidMatch[1];
-            status.innerHTML = "⏳ Zpracovávám...";
-            submitBtn.disabled = true;
+            const title = (data.title || "dokument").replace(/[\\/*?:"<>|]/g, "").trim();
+            const pdfUrl = data.pdfUrl;
 
-            try {
-                const res = await fetch(`${WORKER_BASE_URL}?id=${knowId}`);
-                const data = await res.json();
-
-                if (!res.ok) {
-                    status.innerHTML = `❌ Chyba serveru (${res.status}): ${data.error || 'Neznámá chyba'}`;
-                    submitBtn.disabled = false;
-                    return;
-                }
-
-                const title = (data.title || "dokument").replace(/[\\/*?:"<>|]/g, "").trim();
-                const documents = data.documents || [];
-
-                let pdfUrl = documents.length ? documents[0].contentUrl : null;
-
-                if (!pdfUrl) {
-                    status.innerHTML = "❌ Příspěvek neobsahuje přímý PDF soubor.";
-                    submitBtn.disabled = false;
-                    return;
-                }
-
-                status.innerHTML = `
-                    <p style="color: #4ade80; font-weight: bold; margin-bottom: 0.5rem;">✅ Nalezeno!</p>
-                    <p style="color: #cbd5e1; margin-bottom: 1rem;">${title}</p>
-                    <a href="${pdfUrl}" target="_blank" class="dl-btn">Otevřít / Stáhnout PDF</a>
-                `;
-            } catch (err) {
-                status.innerHTML = `❌ Chyba připojení: ${err.message}`;
-            } finally {
+            if (!pdfUrl) {
+                status.innerHTML = "❌ Příspěvek neobsahuje přímý PDF odkaz.";
                 submitBtn.disabled = false;
+                return;
             }
+
+            status.innerHTML = `
+                <p style="color: #4ade80; font-weight: bold; margin-bottom: 0.5rem;">✅ Nalezeno!</p>
+                <p style="color: #cbd5e1; margin-bottom: 1rem;">${title}</p>
+                <a href="${pdfUrl}" target="_blank" class="dl-btn">Otevřít / Stáhnout PDF</a>
+            `;
+        } catch (err) {
+            status.innerHTML = `❌ Chyba připojení: ${err.message}`;
+        } finally {
+            submitBtn.disabled = false;
         }
+    }
     </script>
 </body>
 </html>
