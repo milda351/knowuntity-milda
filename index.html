@@ -6,7 +6,7 @@
     <title>Knowunity Downloader</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
-        .card { background: #1e293b; padding: 2rem; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 100%; max-width: 420px; box-sizing: border-box; text-align: center; }
+        .card { background: #1e293b; padding: 2rem; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 100%; max-width: 440px; box-sizing: border-box; text-align: center; }
         h2 { margin-top: 0; font-size: 1.5rem; color: #38bdf8; }
         input { width: 100%; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #475569; background: #0f172a; color: #fff; margin-bottom: 1rem; box-sizing: border-box; font-size: 1rem; }
         button, .dl-btn { width: 100%; padding: 0.75rem; border-radius: 0.5rem; border: none; background: #0ea5e9; color: white; font-weight: bold; cursor: pointer; text-decoration: none; display: inline-block; box-sizing: border-box; font-size: 1rem; }
@@ -17,30 +17,40 @@
 <body>
     <div class="card">
         <h2>Knowunity Downloader</h2>
-        <input type="text" id="urlInput" placeholder="Vlož celý odkaz z Knowunity">
+        <input type="text" id="urlInput" placeholder="Vlož odkaz (webapp nebo knows...)">
         <button id="submitBtn" onclick="processKnowunity()">Získat PDF</button>
         <div id="status"></div>
     </div>
 
     <script>
-        async function fetchWithFallback(targetUrl) {
+        async function fetchJsonViaProxy(targetApiUrl) {
             const proxies = [
-                (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
-                (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-                (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
+                async (u) => {
+                    const res = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(u)}`);
+                    if (!res.ok) throw new Error();
+                    return await res.json();
+                },
+                async (u) => {
+                    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(u)}`);
+                    if (!res.ok) throw new Error();
+                    const data = await res.json();
+                    return JSON.parse(data.contents);
+                },
+                async (u) => {
+                    const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`);
+                    if (!res.ok) throw new Error();
+                    return await res.json();
+                }
             ];
 
             for (const proxy of proxies) {
                 try {
-                    const res = await fetch(proxy(targetUrl));
-                    if (res.ok) {
-                        return await res.text();
-                    }
+                    return await proxy(targetApiUrl);
                 } catch (e) {
                     continue;
                 }
             }
-            throw new Error("Žádná proxy neodpověděla.");
+            throw new Error("Všechny proxy selhaly.");
         }
 
         async function processKnowunity() {
@@ -48,44 +58,30 @@
             const status = document.getElementById('status');
             const submitBtn = document.getElementById('submitBtn');
 
-            if (!urlInput) {
-                status.innerHTML = "❌ Vlož prosím odkaz.";
+            // Detekce UUID formátu (např. f2eb7f3b-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+            const uuidMatch = urlInput.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+            
+            if (!uuidMatch) {
+                status.innerHTML = "❌ V odkazu nebylo nalezeno ID dokumentu (UUID).";
                 return;
             }
 
-            status.innerHTML = "⏳ Načítám stránku...";
+            const knowId = uuidMatch[1];
+            status.innerHTML = "⏳ Načítám metadata z API...";
             submitBtn.disabled = true;
 
+            const targetApiUrl = `https://api.knowunity.com/v2/knows/${knowId}`;
+
             try {
-                // Stáhneme přímo HTML stránky přes proxy
-                const html = await fetchWithFallback(urlInput);
+                const data = await fetchJsonViaProxy(targetApiUrl);
 
-                let pdfUrl = null;
-                let title = "dokument";
+                const title = (data.title || "dokument").replace(/[\\/*?:"<>|]/g, "").trim();
+                const documents = data.documents || [];
 
-                // Pokus 1: Vytáhnout JSON z __NEXT_DATA__
-                const jsonMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/);
-                if (jsonMatch) {
-                    try {
-                        const nextData = JSON.parse(jsonMatch[1]);
-                        const know = nextData.props?.pageProps?.know || nextData.props?.pageProps?.initialKnow;
-                        if (know) {
-                            title = know.title || title;
-                            pdfUrl = know.documents?.[0]?.contentUrl;
-                        }
-                    } catch (e) {}
-                }
-
-                // Pokus 2: Hledání PDF přímo v HTML přes regex
-                if (!pdfUrl) {
-                    const directMatch = html.match(/https:\/\/[^"'\s]+\.pdf[^"'\s]*/);
-                    if (directMatch) {
-                        pdfUrl = directMatch[0];
-                    }
-                }
+                let pdfUrl = documents.length ? documents[0].contentUrl : null;
 
                 if (!pdfUrl) {
-                    status.innerHTML = "❌ Nepodařilo se najít PDF odkaz. Ujisti se, že je odkaz celý a veřejný.";
+                    status.innerHTML = "❌ Tento příspěvek neobsahuje přímý PDF soubor (mohou to být pouze obrázky nebo kvíz).";
                     submitBtn.disabled = false;
                     return;
                 }
@@ -93,10 +89,10 @@
                 status.innerHTML = `
                     <p style="color: #4ade80; font-weight: bold; margin-bottom: 0.5rem;">✅ Dokument nalezen!</p>
                     <p style="color: #cbd5e1; margin-bottom: 1rem;">${title}</p>
-                    <a href="${pdfUrl}" target="_blank" download="${title}.pdf" class="dl-btn">Otevřít / Stáhnout PDF</a>
+                    <a href="${pdfUrl}" target="_blank" class="dl-btn">Otevřít / Stáhnout PDF</a>
                 `;
             } catch (err) {
-                status.innerHTML = "❌ Chyba při načítání. Zkontroluj odkaz nebo připojení.";
+                status.innerHTML = "❌ Nepodařilo se načíst data z Knowunity API. Zkontroluj připojení.";
             } finally {
                 submitBtn.disabled = false;
             }
