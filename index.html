@@ -17,40 +17,32 @@
 <body>
     <div class="card">
         <h2>Knowunity Downloader</h2>
-        <input type="text" id="urlInput" placeholder="Vlož odkaz (webapp nebo knows...)">
+        <input type="text" id="urlInput" placeholder="Vlož odkaz z Knowunity">
         <button id="submitBtn" onclick="processKnowunity()">Získat PDF</button>
         <div id="status"></div>
     </div>
 
     <script>
-        async function fetchJsonViaProxy(targetApiUrl) {
-            const proxies = [
-                async (u) => {
-                    const res = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(u)}`);
-                    if (!res.ok) throw new Error();
-                    return await res.json();
-                },
-                async (u) => {
-                    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(u)}`);
-                    if (!res.ok) throw new Error();
-                    const data = await res.json();
-                    return JSON.parse(data.contents);
-                },
-                async (u) => {
-                    const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`);
-                    if (!res.ok) throw new Error();
-                    return await res.json();
-                }
+        async function fetchKnowunityData(knowId) {
+            // Zkoušíme přímé endpointy i stabilní proxy
+            const endpoints = [
+                `https://knowunity.cz/api/knows-v2/${knowId}`,
+                `https://knowunity.de/api/knows-v2/${knowId}`,
+                `https://api.allorigins.win/raw?url=${encodeURIComponent('https://knowunity.cz/api/knows-v2/' + knowId)}`,
+                `https://thingproxy.freeboard.io/fetch/https://knowunity.cz/api/knows-v2/${knowId}`
             ];
 
-            for (const proxy of proxies) {
+            for (const url of endpoints) {
                 try {
-                    return await proxy(targetApiUrl);
+                    const res = await fetch(url);
+                    if (res.ok) {
+                        return await res.json();
+                    }
                 } catch (e) {
                     continue;
                 }
             }
-            throw new Error("Všechny proxy selhaly.");
+            throw new Error("Nepodařilo se navázat spojení se serverem.");
         }
 
         async function processKnowunity() {
@@ -58,22 +50,19 @@
             const status = document.getElementById('status');
             const submitBtn = document.getElementById('submitBtn');
 
-            // Detekce UUID formátu (např. f2eb7f3b-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
             const uuidMatch = urlInput.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
             
             if (!uuidMatch) {
-                status.innerHTML = "❌ V odkazu nebylo nalezeno ID dokumentu (UUID).";
+                status.innerHTML = "❌ V odkazu nebylo nalezeno platné UUID.";
                 return;
             }
 
             const knowId = uuidMatch[1];
-            status.innerHTML = "⏳ Načítám metadata z API...";
+            status.innerHTML = "⏳ Načítám data...";
             submitBtn.disabled = true;
 
-            const targetApiUrl = `https://api.knowunity.com/v2/knows/${knowId}`;
-
             try {
-                const data = await fetchJsonViaProxy(targetApiUrl);
+                const data = await fetchKnowunityData(knowId);
 
                 const title = (data.title || "dokument").replace(/[\\/*?:"<>|]/g, "").trim();
                 const documents = data.documents || [];
@@ -81,7 +70,7 @@
                 let pdfUrl = documents.length ? documents[0].contentUrl : null;
 
                 if (!pdfUrl) {
-                    status.innerHTML = "❌ Tento příspěvek neobsahuje přímý PDF soubor (mohou to být pouze obrázky nebo kvíz).";
+                    status.innerHTML = "❌ Příspěvek neobsahuje soubor ke stažení.";
                     submitBtn.disabled = false;
                     return;
                 }
@@ -92,7 +81,7 @@
                     <a href="${pdfUrl}" target="_blank" class="dl-btn">Otevřít / Stáhnout PDF</a>
                 `;
             } catch (err) {
-                status.innerHTML = "❌ Nepodařilo se načíst data z Knowunity API. Zkontroluj připojení.";
+                status.innerHTML = "❌ Chyba při stahování dat. Zkontroluj odkaz nebo připojení.";
             } finally {
                 submitBtn.disabled = false;
             }
