@@ -64,7 +64,8 @@
                     <a href="${pdfUrl}" target="_blank" class="dl-btn">Otevřít / Stáhnout PDF</a>
                 `;
             } catch (err) {
-                status.innerHTML = "❌ Chyba při spojení s proxy workerem. Zkontroluj nastavení.";
+                const errData = await res.json().catch(() => ({}));
+                status.innerHTML = `❌ Chyba serveru (${res.status}): ${errData.message || errData.error || 'Neznámá chyba'}`;
             } finally {
                 submitBtn.disabled = false;
             }
