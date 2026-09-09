@@ -23,27 +23,8 @@
     </div>
 
     <script>
-        async function fetchKnowunityData(knowId) {
-            // Zkoušíme přímé endpointy i stabilní proxy
-            const endpoints = [
-                `https://knowunity.cz/api/knows-v2/${knowId}`,
-                `https://knowunity.de/api/knows-v2/${knowId}`,
-                `https://api.allorigins.win/raw?url=${encodeURIComponent('https://knowunity.cz/api/knows-v2/' + knowId)}`,
-                `https://thingproxy.freeboard.io/fetch/https://knowunity.cz/api/knows-v2/${knowId}`
-            ];
-
-            for (const url of endpoints) {
-                try {
-                    const res = await fetch(url);
-                    if (res.ok) {
-                        return await res.json();
-                    }
-                } catch (e) {
-                    continue;
-                }
-            }
-            throw new Error("Nepodařilo se navázat spojení se serverem.");
-        }
+        // SEM VLOŽ ODKAZ NA TVŮJ CLOUDFLARE WORKER:
+        const WORKER_BASE_URL = "https://knowunity-proxy.hebronmilan89.workers.dev";
 
         async function processKnowunity() {
             const urlInput = document.getElementById('urlInput').value.trim();
@@ -53,35 +34,37 @@
             const uuidMatch = urlInput.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
             
             if (!uuidMatch) {
-                status.innerHTML = "❌ V odkazu nebylo nalezeno platné UUID.";
+                status.innerHTML = "❌ V odkazu nebylo nalezeno platné ID (UUID).";
                 return;
             }
 
             const knowId = uuidMatch[1];
-            status.innerHTML = "⏳ Načítám data...";
+            status.innerHTML = "⏳ Zpracovávám...";
             submitBtn.disabled = true;
 
             try {
-                const data = await fetchKnowunityData(knowId);
+                const res = await fetch(`${WORKER_BASE_URL}?id=${knowId}`);
+                if (!res.ok) throw new Error("Chyba API serveru");
 
+                const data = await res.json();
                 const title = (data.title || "dokument").replace(/[\\/*?:"<>|]/g, "").trim();
                 const documents = data.documents || [];
 
                 let pdfUrl = documents.length ? documents[0].contentUrl : null;
 
                 if (!pdfUrl) {
-                    status.innerHTML = "❌ Příspěvek neobsahuje soubor ke stažení.";
+                    status.innerHTML = "❌ Příspěvek neobsahuje přímý PDF soubor.";
                     submitBtn.disabled = false;
                     return;
                 }
 
                 status.innerHTML = `
-                    <p style="color: #4ade80; font-weight: bold; margin-bottom: 0.5rem;">✅ Dokument nalezen!</p>
+                    <p style="color: #4ade80; font-weight: bold; margin-bottom: 0.5rem;">✅ Nalezeno!</p>
                     <p style="color: #cbd5e1; margin-bottom: 1rem;">${title}</p>
                     <a href="${pdfUrl}" target="_blank" class="dl-btn">Otevřít / Stáhnout PDF</a>
                 `;
             } catch (err) {
-                status.innerHTML = "❌ Chyba při stahování dat. Zkontroluj odkaz nebo připojení.";
+                status.innerHTML = "❌ Chyba při spojení s proxy workerem. Zkontroluj nastavení.";
             } finally {
                 submitBtn.disabled = false;
             }
