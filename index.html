@@ -111,19 +111,10 @@
                 return;
             }
 
-            const title = (data.title || "dokument").replace(/[\\/*?:"<>|]/g, "").trim();
-            const pdfUrl = data.pdfUrl;
-
-            if (!pdfUrl) {
-                status.innerHTML = "❌ Příspěvek neobsahuje přímý PDF odkaz.";
-                submitBtn.disabled = false;
-                return;
-            }
-
             status.innerHTML = `
                 <p style="color: #4ade80; font-weight: bold; margin-bottom: 0.5rem;">✅ Nalezeno!</p>
-                <p style="color: #cbd5e1; margin-bottom: 1rem;">${title}</p>
-                <a href="${pdfUrl}" target="_blank" class="dl-btn">Otevřít / Stáhnout PDF</a>
+                <p style="color: #cbd5e1; margin-bottom: 1rem;">${data.title}</p>
+                <a href="${data.downloadUrl}" class="dl-btn">Stáhnout PDF</a>
             `;
         } catch (err) {
             status.innerHTML = `❌ Chyba připojení: ${err.message}`;
